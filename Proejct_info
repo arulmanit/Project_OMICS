@@ -1,0 +1,51 @@
+**Main Research Question*** 
+
+Can the severity of atopic eczema (atopic dermatitis), as measured by the SCORAD score, be predicted by the transcriptome ?
+
+Secondary question:
+
+How do additional variables (clinical characteristics) relate to this?
+
+
+Data structure as per the researcher
+
+Initial sample size
+n = 351 
+
+Atopic dermatitis ;  n – 91
+Psoriasis;                 n – 134
+Healthy volunteer;   n – 126
+
+Removed 35 genes during the QC
+
+Final matched samples n = 316
+AD,   n = 82
+PSO, n = 119
+HV, n = 115
+
+
+ECZEMA related database
+
+n = 82
+From each participant:
+Sick skin  - 82
+healthy skin – 82
+
+Healthy controls
+n = 115
+
+healthy skin *2 = 230
+
+
+RNA Expression
+
+n = 326233
+
+
+
+Clinical data : Demographics; Age, sex origin, family history and history of diseases
+
+Transcriptome: 
+Data from Micro- array quantitative data, 
+expression intensity of each gene: minimum 0 to maximum 12
+    

@@ -1,0 +1,13 @@
+---
+title: "R_scripts"
+author: "Arul"
+date: "10/13/2019"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
