@@ -1,13 +1,183 @@
 ---
-title: "R_scripts"
-author: "Arul"
+title: "OMICS Project"
+author: "Arulmani, Gabriel, Penn"
 date: "10/13/2019"
-output: pdf_document
+output: 
+  html_document:
+    toc: true
+    number_sections: true  
+    
+fontsize: 12pt 
+
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## R Markdown
+# Installing the Geo query bio conductor package
+```{r, eval = FALSE}
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+```
+
+
+# Importing the libraries required
+```{r, eval=FALSE}
+BiocManager::install("GEOquery")
+BiocManager::install("edgeR")
+BiocManager::install("limma")
+
+install.packages("UpSetR")
+install.packages("flashClust")
+library(readr)
+library(dplyr)
+library(limma)
+library(edgeR)
+library(UpSetR)
+library(flashClust)
+library(readxl)
+library(GEOquery)
+```
+
+
+
+# Importing the dataset
+
+```{r}
+
+AD_all_data <- read.csv(file = "M2PHDS_19-20_OMICS_CLIN_DATA_MAARS_all_Fri_Apr_04_14h_CEST_2014.csv", header = TRUE, sep = "\t")
+MAARS_all_data <- read.csv(file = "M2PHDS_19-20_OMICS_CLIN_DATA_MAARS_AD_full_20190131_12-34-49.csv", header = TRUE, sep = "\t")
+omics_data <- read.delim("/home/user-02/Desktop/Project_OMICS/M2PHDS_19-20_OMICS_TRANSC_MAARS_normTranscriptome_618samples_16042014.txt")
+
+```
+
+
+## Checking the dimensions of the given dataset and variables names
+```{r}
+dim(AD_all_data)
+str(AD_all_data, eval = FALSE)
+dim(MAARS_all_data)
+str(MAARS_all_data, eval = FALSE)
+dim(omics_data)
+str(omics_data, eval = FALSE)
+```
+
+```{r, eval=FALSE}
+names(AD_all_data)
+names(MAARS_all_data)
+```
+
+## Calculating samples in each sub group
+```{r}
+library(dplyr)
+AD_all_data %>% group_by(AD_all_data$clinical_group)%>% summarise(n = n())
+
+# Calculating the distinct individual in each group
+AD_all_data %>% group_by(AD_all_data$clinical_group)%>% summarise(n = n_distinct(MAARS_identifier))
+
+```
+
+## Calculating the samples as per the lesion status
+
+```{r}
+AD_all_data%>%group_by(AD_all_data$lesional) %>% summarise(n = n())
+
+#calculating the distinct samples in each group
+AD_all_data%>% group_by(AD_all_data$lesional)%>% summarise(n = n_distinct(MAARS_identifier))
+
+#Calculating the distinct samples in each institution
+AD_all_data%>%group_by(AD_all_data$Institution)%>%summarise(n_distinct(MAARS_identifier))
+# Calculating the distinct samples under anatomical location
+AD_all_data%>% group_by(AD_all_data$anatomical_location_label)%>%summarise(n_distinct = n_distinct(MAARS_identifier))
+```
+
+# Analysing the other clinical covariates descriptives
+```{r}
+
+Descriptives_AD_data<- AD_all_data %>% group_by(AD_all_data$clinical_group)%>% 
+  summarise( n_distinct = n_distinct(MAARS_identifier), percentage_anatomical_loc_PT = sum(anatomical_location_label == "PT")/n()*100, percentage_anatomical_loc_UB = sum(anatomical_location_label == "UB")/n()*100, percentage_anatomical_loc_B = sum(anatomical_location_label == "B")/n()*100, percentage_anatomical_loc_LB = sum(anatomical_location_label == "LB")/n()*100, percentage_anatomical_loc_T = sum(anatomical_location_label == "T")/n()*100, percentage_HHU = sum(Institution == "HHU")/n()*100, percentage_KINGS = sum(Institution == "KINGS")/n()*100, percentage_UH = sum(Institution == "UH")/n()*100, mean_age = mean(CUSTOM_Age), sd_age = sd(CUSTOM_Age), percentage_male  = sum(Gender == "Male")/n()*100)
+Descriptives_AD_data
+
+```
+
+# Checking the allergies variables
+```{r}
+
+
+Descrptives_AD_data_allergy<- AD_all_data%>% group_by(AD_all_data$clinical_group)%>% 
+  summarise( n_distinct = n_distinct(MAARS_identifier), percentage_pseudo_allergy = sum(Known_Allergies_v2..Pseudo_Drug_Allergy == "FALSE")/n()*100, percentage_House_dust_mite = sum(Known_Allergies_v2..House_dust_mite)/n()*100,  percentage_Food = sum(Known_Allergies_v2..Food)/n()*100,  percentage_Pollen = sum(Known_Allergies_v2..Pollen)/n()*100,  percentage_contact_allergy = sum(Known_Allergies_v2..Contact_Allergy)/n()*100,  percentage_drug_allergy = sum(Known_Allergies_v2..Drug_Allergy)/n()*100,  percentage_allergy_animal = sum(Known_Allergies_v2..Animal)/n()*100)
+Descrptives_AD_data_allergy
+```
+
+
+# Checking the differences among groups(AD, PSO, CTRL)
+### Barplot of the library sizes of each sample
+```{r}
+clinical_group <- AD_all_data$clinical_group
+levels(clinical_group) <- c("blue2", "gold", "green2")
+boxplot(log2(omics_data),
+    col = as.character(clinical_group), xlab = "Samples", ylab = "log2(raw counts)", 
+    axes = FALSE)
+axis
+box()
+legend("topright", c("Atopic Dermatits", "P(2)soriasis", "Healthy Volunteers"), col = c("blue2", "gold", "green2"), pch = 15, horiz = TRUE, bg= NA)
+
+```
+
+
+## Checking the differences in lesion status
+```{r}
+lesion_status <- AD_all_data$lesional
+levels(lesion_status) <- c("blue2", "gold")
+boxplot(log2(select(omics_data, -1)),
+        col = as.character(lesion_status), xlab = "Samples", ylab = "log2(raw counts)",
+        axes = FALSE)
+axis(2)
+box()
+legend("topright", c("Lesional", "Nonlesional"), col = c("blue2", "gold"), pch = 15, horiz = TRUE, bg = NA)
+```
+
+It is inferred that the plot shows us the data is reasonably normalized with no library size effects
+
+
+## Checking the sequecning depth diffrences in clinical group
+```{r}
+barplot(colSums(select(omics_data, -1)), 
+    col = as.character(clinical_group), xlab = "Samples", ylab = "Library size", names.arg = "")
+legend("topright", c("Atopic Dermatits", "Psoriasis", "Healthy Volunteers"), col = c("blue3", 
+    "gold", "green2"), pch = 15, horiz = FALSE, bg = NA)
+```
+
+## Checking the sequecning depth diffrences in lesion status
+
+```{r}
+barplot(colSums(select(omics_data, -1)), 
+    col = as.character(lesion_status), xlab = "Samples", ylab = "Library size", names.arg = "")
+legend("topright", c("Lesional", "Nonlesional"), col = c("blue3", 
+    "gold"), pch = 15, horiz = FALSE, bg = NA)
+```
+It is inferred that the there is no sequencing depth problem which could have been treated with TMM normalization
+
+## Dendrogram of the hierarchial clusterings using ward method and euclidean distance
+
+```{r, eval=FALSE}
+deucl_norm <- dist(t(omics_data))
+plot(deucl_norm)
+
+colnames(omics_data)[1:10]
+rownames(omics_data)[1:15]
+
+plot(flashClust::hclust(deucl_norm, method = "ward"), labels = AD_all_data$clinical_group)
+
+```
+
+## Adding the omics modified file 
+```{r, eval= FALSE}
+
+omics_modified_data<- read.delim("~/Desktop/Project_OMICS/M2PHDS_19-20_OMICS_TRANSC_MAARS_normTranscriptome_618samples_16042014.csv")
+gsub(pattern = )
+```
+
 
