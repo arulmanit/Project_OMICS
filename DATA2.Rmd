@@ -1,0 +1,60 @@
+---
+title: "data management for file all AD"
+author: "GAB"
+date: "10/12/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+```
+
+```{r}
+library("readxl")
+data2 <- read_excel("M2PHDS_19-20_OMICS_CLIN_DATA_MAARS_all_Fri_Apr_04_14h_CEST_2014.xlsx")
+head(data2)
+```
+
+Selecting subjects and removing redundancy: one single identifier 
+```{r grouping by subject/ MAARS_identifier}
+data2_grouped <-data2 %>%
+  distinct(MAARS_identifier, .keep_all=TRUE) %>%
+  arrange(MAARS_identifier)
+
+head(data2_grouped)
+data2_grouped %>%
+  count(clinical_group)
+```
+That leaves us with 334 people instead of 316 as initially in the flow chart
+88 AD like in the full AD file after excluding patients. 
+
+```{r}
+data2_AD <- filter(data2_grouped, clinical_group=="AD")
+intersect(data2_grouped$MAARS_identifier, data1$A1)
+setdiff(data2_AD$MAARS_identifier,data1$A1)
+
+```
+91 AD patient in data2
+
+that leaves 87 participants in common 
+"MAARS_2_104" is not in common between the 2 databases, is in data_full_clean but not in data_all_AD
+removing him from data_all:
+```{r}
+data1<- data1 %>%
+  filter(A1 != "MAARS_2_104")
+```
+
+```{r}
+setdiff(data2_AD$MAARS_identifier,data1$A1)
+data2_AD <- data2_AD %>%
+  filter(MAARS_identifier != "MAARS_1_017")
+```
+"MAARS_1_017 is in data_all_AD but not in data_full_clean anymore, 
+we need to remove him from the data2_AD
+
+
+

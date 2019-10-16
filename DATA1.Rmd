@@ -1,0 +1,184 @@
+---
+title: " DATA1 : CLINICAL DATA/gen ON AD SUBJETCS"
+author: "GAB"
+date: "10/12/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+MAARS_AD_full_20190131_12-34-49.csv  
+= Clinical and technical features specific to AD samples (only AD Lesional and AD Non_lesional)  
+Please be careful that clinical and technical features are common for a same MAARS_identifier and sample_id.  
+Thus, for the severity stratification (SCORAD_Score) it is recommended to analyse separately lesional and non lesional skin.
+Most interested variables for sample identification:  
+● involved skin biopsy#involved skin biopsy#MAARS Sample identifier (MAARS_Sample_identifier) : lesional sample_id    
+● uninvolved skin biopsy#uninvolved skin biopsy#MAARS Sample identifier (MAARS_Sample_identifier) : non lesional sample_id    
+Most interesting variable for severity stratification and prediction  
+● patient#SCORAD index#SCORAD#SCORAD Score (SCORAD_Score)  
+The others variables can be useful to identify potential confounding factor of interesting clinical features  
+
+## importing data
+```{r importing AD dataset}
+library(tidyverse)
+library(readxl)
+library(knitr)
+data1 <- read_excel("M2PHDS_19-20_OMICS_CLIN_DATA_MAARS_AD_full_20190131_12-34-49_backup.xlsx")
+```
+94 patients included with AD but 91 were included according to the paper.
+
+## Subsetting
+### Patient identification subset: A1 to A4
+```{r subsetting data, identification}
+patient_identification_df <- data1[ , 1:4]
+patient_identification_df %>%
+   group_by(A4) %>%
+      count(patient_id= paste(A1, collapse = ","))
+```
+39 patients are from UHU: Dusseldorf Germany
+16 from KINGS, London
+39 from UH, Helsinki, Finland  
+
+### Inclusion/exclusion criteria subset: A5 to A13
+```{r subsetting data, inclusion/exclusion criteria}
+inclusion_df <- data1[ , c(1, 5:13)]
+```
+
+
+```{r checking A11}
+inclusion_df %>% 
+  group_by(A11)%>%
+  count(A1)
+inclusion_df_clean <- inclusion_df %>%
+filter(A11=="No")#
+```
+One patient had antibiotics during the previous 2 weeks: 2 weeks MAARS_2_013, removing him
+
+check inclusion_df_clean: MAARS_2_013 is gone
+```{r checking A5 Written_informed_consent}
+inclusion_df_clean %>%
+  group_by(A5) %>%
+  count(A1)
+
+```
+All of participants gave written informed consent  
+
+```{r checking A6, 18_yo}
+inclusion_df_clean %>%
+  group_by(A6) %>%
+  count(A1)
+```
+All participants were 18 or more 
+
+
+```{r checking A7, Patients_with_Atopic_Dermatitis,_diagnosed_using_Hanifin-Rajka_Criteria}
+inclusion_df_clean %>%
+  group_by(A7) %>%
+  count(A1)
+```
+All participants were diagnosed with SCORAD
+
+```{r checking A8, Subject_unable_to_give_written_informed_consent}
+inclusion_df_clean %>%
+  group_by(A8) %>%
+  count(A1)
+```
+All participants were able to give written informed consent
+
+```{r checking A9, Subject_has_no_allergen-specific_IgE_and_no_allergen-specific_immediate_type_reactions}
+inclusion_df_clean %>%
+  group_by(A9) %>%
+  count(A1)
+```
+All participants didn't have allergen-specific IgE
+
+```{r checking A10, Subjects_who_have_received_treatment_at_the_biopsy_site_at_least_2_weeks_prior_to_screening}
+inclusion_df_clean %>%
+  group_by(A10) %>%
+  count(A1)
+```
+All participants didn't receive treatment at the biopsy site at least 2 weeks prior to screening 
+
+*One subject removed based on inclusion/exclusion criteria*
+
+### Diagnostic & Phenotypic Data: A14 to A20
+
+```{r subsetting Diagnostic and phenotypic data}
+diag_pheno_df <- data1[ , c(1, 14:20)]
+```
+
+```{r A14, looking at subjects date of birth}
+kable(diag_pheno_df %>%
+  summarise(mean(A14), sd(A14)))
+```
+
+```{r A15, ethnicity}
+kable(diag_pheno_df %>%
+  count(A15))
+```
+
+### Hanifin and Rajka diagnostic criteria: A21 to A57
+```{r subsetting Hanifin and Rajka diagnostic criteria}
+scorad_criteria <- data1[ , c(1, 21:57)]
+```
+
+### SCORAD index and scores: A215 to A227
+```{r subsetting SCORAD index and scores}
+scorad_score <- data1[ , c(1, 215:227)]
+
+```
+
+```{r SCORAD total scores A226}
+kable(scorad_score$A226)
+
+kable(scorad_score %>%
+  summarise(mean(A226), sd(A226)))
+```
+
+### Subsetting for Other concurrent chronic diseases: A189 to 208
+```{r Subsetting for Other concurrent chronic diseases}
+chronic_disease <- data1[ , c(1, 189:208)]
+```
+
+### Subsetting for exlcuded categories: A252, 264,269, 276, 284, 288, 292, 296
+
+```{r Subsetting for exlcuded categories}
+excluded <-dplyr::select(data1, A1, A252, A260, A264, A268, A272, A276, A280,A284, A288, A292, A296)
+```
+
+
+```{r excluded from curated items: A252}
+kable(excluded%>%
+        group_by(A1)%>%
+        count(A252=="Yes"))
+```
+5 patients excluded from curated items
+
+```{r excluded from involved skin biopsy: A264}
+kable(excluded%>%
+  count(A264=="Yes"))
+```
+all patients kept from involved skin biopsy
+
+```{r excluded from uninvolved skin biopsy: A268}
+kable(excluded%>%
+        group_by(patient_id)%>%
+        
+  count(A268=="Yes"))
+```
+1 patient excluded from uninvolved skin biopsy
+
+```{r excluding patients}
+data1 <- data1 %>%
+  filter(A11 == "No", is.na(A252), is.na(A268))
+
+```
+
+88 patients remaining
+descriptive analysis
+
+
+```{r}
+```
+
