@@ -1,0 +1,568 @@
+---
+title: "R scripts for unsupervised analysis"
+author: "Arul"
+date: "11/3/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+Importing all needed libraries for the anlaysis
+```{r, eval=FALSE}
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(dplyr)
+library(edgeR)
+library(limma)
+library(UpSetR)
+library(flashClust)
+library(GEOquery)
+library(dendextend)
+library(RColorBrewer)
+library(knitr)
+library(kableExtra)
+library(FactoMineR)
+```
+
+1. Importing the datasets to R 
+```{r, eval=FALSE}
+library(readxl)
+data1<-read.csv(file = "M2PHDS_19-20_OMICS_CLIN_DATA_MAARS_AD_full_20190131_12-34-49 (1).csv", header = TRUE, sep = "\t")
+data2 <- read_excel("M2PHDS_19-20_OMICS_CLIN_DATA_MAARS_all_Fri_Apr_04_14h_CEST_2014.xlsx")
+data3<- read.delim("M2PHDS_19-20_OMICS_TRANSC_MAARS_normTranscriptome_618samples_16042014.txt")
+```
+
+2. Taking all the participants that have gene expression from data 1 and data2 through MAARS identifier
+```{r, filtering the samples that have only gene expression, eval=FALSE}
+data2 <- data2 %>% filter(sample_id %in% colnames(data3))
+
+sample_id <- colnames(data3)
+
+annotations <- data.frame(sample_id = colnames(data3), MAARS_identifier = gsub('.{3}$', '', sample_id))
+
+annotations <- dplyr::left_join(annotations, data2, by = "sample_id") %>% select(sample_id, MAARS_identifier.x, clinical_group, lesional, CUSTOM_Age, Gender, Institution) %>% rename(MAARS_identifier = MAARS_identifier.x)
+
+data1 <- data1 %>% filter(data1$patient.Identification.MAARS.identifier..MAARS_identifier. %in% annotations$MAARS_identifier) 
+
+  
+data2_AD<- data2 %>% filter(clinical_group == "AD")
+data2_CTRL<- data2 %>% filter(clinical_group == "CTRL")
+data2_PSO <- data2 %>% filter(clinical_group == "PSO")
+
+# leaving the PSO data from the analysis
+
+data2_AD_CTRL <- data2 %>% filter(clinical_group == "AD" | clinical_group == "CTRL")
+data2_AD_Lesional <- data2 %>% filter(clinical_group == "AD" | lesional == "LES")
+
+
+```
+
+
+```{r, linking and merging the the three main dataframes with required columns by join function, eval=FALSE}
+# taking the participant
+sample_id <- colnames(data3)
+
+annotations <- data.frame(sample_id = colnames(data3), MAARS_identifier = gsub('.{3}$', '', sample_id))
+
+annotations <- dplyr::left_join(annotations, data2, by = "sample_id") %>% select(sample_id, MAARS_identifier.x, clinical_group, lesional, CUSTOM_Age, Gender, Institution) %>% rename(MAARS_identifier = MAARS_identifier.x)
+
+# Categorising thhe SCORAD into three levels - mild, moderate and severe
+SCORAD_cat<- cut(data1$patient.SCORAD.index.SCORAD.SCORAD.Score..SCORAD_Score., breaks = c(0, 25, 50, 100), labels = c("Mild", "Moderate", "Severe"), right = FALSE)
+data1 <- cbind(data1, SCORAD_cat)
+
+
+Infos_dataset <- dplyr::left_join(annotations, data1, by = c("sample_id" = "involved.skin.biopsy.involved.skin.biopsy.MAARS.Sample.identifier..MAARS_Sample_identifier.")) %>% select(sample_id, MAARS_identifier, clinical_group, lesional, CUSTOM_Age, Gender, Institution, SCORAD_cat)%>% rename(SCORAD_status = SCORAD_cat)
+
+
+# Making the control group has  No_Atopic dermatitis in SCORAD status
+
+levels<- levels(Infos_dataset$SCORAD_status)
+levels[length(levels) + 1] <- "No_Atopic_dermatitis"
+
+Infos_dataset$SCORAD_status <- factor(Infos_dataset$SCORAD_status, levels = levels)
+Infos_dataset$SCORAD_status[is.na(Infos_dataset$SCORAD_status)] <- "No_Atopic_dermatitis"
+
+class(Infos_dataset$SCORAD_status)
+  
+#removal of PSO from the analysis as we are going to focus on the AD lesional and non lesional in comparison with the Ctrl group.
+
+Infos_dataset_AD_CTRL <- Infos_dataset %>% filter(clinical_group == "AD" | clinical_group == "CTRL")
+
+#Creating a vraible for AD_lesional, AD_nonlesional and Control
+
+Infos_dataset_AD_CTRL$lesion_clinical = Infos_dataset_AD_CTRL
+
+#Identifying only AD and CTRL to the data3(gene expression dataset)
+
+Geneset_AD_CTRL <- data3[, colnames(data3) %in% Infos_dataset_AD_CTRL$sample_id]
+
+```
+
+
+```{r, eval=FALSE}
+# Creating the additional variable for participant group belonging to AD lesional, non-lesional and for control seperately
+Infos_dataset_AD_CTRL$Participant_group[Infos_dataset_AD_CTRL$clinical_group == "AD" & Infos_dataset_AD_CTRL$lesional == "LES"] <- "AD_lesional"
+Infos_dataset_AD_CTRL$Participant_group[Infos_dataset_AD_CTRL$clinical_group == "AD" & Infos_dataset_AD_CTRL$lesional == "NON_LES"] <- "AD_nonlesional"
+Infos_dataset_AD_CTRL$Participant_group[Infos_dataset_AD_CTRL$clinical_group == "CTRL"] <- "CTRL"
+
+
+Infos_dataset_AD_CTRL$clinical_group <- as.factor(Infos_dataset_AD_CTRL$clinical_group)
+Infos_dataset_AD_CTRL$lesional <- as.factor(Infos_dataset_AD_CTRL$lesional)
+Infos_dataset_AD_CTRL$Participant_group<- as.factor(Infos_dataset_AD_CTRL$Participant_group)
+Infos_dataset_AD_CTRL$Institution <- as.factor(Infos_dataset_AD_CTRL$Institution)
+
+class(Infos_dataset_AD_CTRL$Institution)
+
+data2_AD_CTRL$Participant_group[data2_AD_CTRL$clinical_group == "AD" & data2_AD_CTRL$lesional == "LES"] <- "AD_lesional"
+data2_AD_CTRL$Participant_group[data2_AD_CTRL$clinical_group == "AD" & data2_AD_CTRL$lesional == "NON_LES"] <- "AD_nonlesional"
+data2_AD_CTRL$Participant_group[data2_AD_CTRL$clinical_group == "CTRL"] <- "CTRL"
+
+# releveling the datset
+
+Infos_dataset_AD_CTRL$clinical_group <- relevel(Infos_dataset_AD_CTRL$clinical_group, ref = "CTRL")
+Infos_dataset_AD_CTRL$lesional <- relevel(Infos_dataset_AD_CTRL$lesional, ref = "NON_LES")
+Infos_dataset_AD_CTRL$Participant_group <- relevel(Infos_dataset_AD_CTRL$Participant_group, ref = "CTRL")
+Infos_dataset_AD_CTRL$SCORAD_status <- relevel(Infos_dataset_AD_CTRL$SCORAD_status, ref = "No_Atopic_dermatitis")
+```
+
+
+**3. Examining the normalization**
+
+*Bar plot visualization for library sizes*
+```{r, eval=FALSE}
+librarySizes <- colSums(Geneset_AD_CTRL)
+# Clinical group wise examination of library sizes
+barplot(librarySizes, 
+    col = Infos_dataset_AD_CTRL$clinical_group, names = names(librarySizes), las=2, names.arg = "", ylim = c(145000, 150000), main="Barplot of library sizes" )
+legend("topright", c("Atopic Dermatits", "Healthy Volunteers"), col = c("red", 
+    "black"), pch = 15, horiz = FALSE, bg = NA)
+abline(h = mean(librarySizes), lty = 2)
+
+```
+
+
+```{r, eval=FALSE}
+# institution wise examination of library sizes
+levels(Infos_dataset_AD_CTRL$Institution) <- c("blue2", "red", "green")
+barplot(librarySizes, col = as.character(Infos_dataset_AD_CTRL$Institution), las=2, names.arg = "", ylim = c(145000, 150000), main="Barplot of library sizes" )
+legend("topright", c("UH", "KINGS", "HHU"), col = c("blue2", "red", "green"), pch = 15, horiz = FALSE, bg = NA)
+abline(h = mean(librarySizes), lty = 2)
+
+```
+
+
+*Box plot visualization for batch effects*
+
+```{r, eval=FALSE}
+# make a colour vector
+statusCol <- as.numeric(factor(Infos_dataset_AD_CTRL$clinical_group)) + 1
+statuscol1<- as.numeric(factor(Infos_dataset_AD_CTRL$Institution)) + 1
+
+# Check distributions of samples using boxplots
+boxplot(Geneset_AD_CTRL, 
+        xlab="", 
+        ylab="RNA seq continous data",
+        las=2,
+        col=statusCol)
+
+
+# Creating a funciton as add_legend
+add_legend <- function(...) {
+  opar <- par(fig=c(0, 1, 0, 1), oma=c(0, 0, 0, 0), 
+    mar=c(0, 0, 0, 0), new=TRUE)
+  on.exit(par(opar))
+  plot(0, 0, type='n', bty='n', xaxt='n', yaxt='n')
+  legend(...)
+}
+
+# Let's add a blue horizontal line that corresponds to the median logCPM
+abline(h=median(as.matrix(Geneset_AD_CTRL)), col="blue")
+add_legend("topright", legend = c("Atopic Dermatitis", "Control"), col = c("green", "red"), pch = 15, horiz = TRUE, bty = "n", cex = 0.8)
+
+# making boxplot for instituition wise
+statuscol1<- as.numeric(factor(Infos_dataset_AD_CTRL$Institution)) + 1
+
+boxplot(Geneset_AD_CTRL, 
+        xlab="", 
+        ylab="RNA seq continous data",
+        las=2,
+        col=statuscol1)
+# Let's add a blue horizontal line that corresponds to the median logCPM
+abline(h=median(as.matrix(Geneset_AD_CTRL)), col="blue")
+add_legend("topright", legend = c("UH", "KINGS", "HHU"), col = c("blue2", "red", "green"), pch = 15, horiz = TRUE, bty = "n", cex = 0.8)
+
+
+```
+
+
+
+**4. Descriptive analysis** 
+ 
+```{r, gender, eval=FALSE}
+library(tidyverse)
+library(knitr)
+
+
+
+kable(data2_AD_CTRL %>% group_by(data2_AD_CTRL$clinical_group) %>% filter(MAARS_identifier != "MAARS_1_017")%>%
+  summarise(n_distinct = n_distinct(MAARS_identifier), mean_age = mean(CUSTOM_Age), sd_age = sd(CUSTOM_Age),
+            percent_female = sum(Gender == "Female")/n()*100, family_history_AD = sum(CUSTOM_Fam._hist._Atopic_dermatitis == TRUE, na.rm = TRUE)/n()*100, family_history_PSO = sum(CUSTOM_Family_History_of_Psoriasis == TRUE, na.rm = TRUE)/n()*100))
+
+
+kable(data2_AD_CTRL %>% group_by(data2_AD_CTRL$clinical_group) %>% filter(MAARS_identifier != "MAARS_1_017")%>%
+  summarise(n_distinct = n_distinct(MAARS_identifier), allergy_pseudo_drug = sum(Known_Allergies_v2..Pseudo_Drug_Allergy == TRUE)/n()*100, allergy_dustmite = sum(Known_Allergies_v2..House_dust_mite == TRUE)/n()*100, allergy_food = sum(Known_Allergies_v2..Food == TRUE)/n()*100, allergy_pollen = sum(Known_Allergies_v2..Pollen == TRUE)/n()*100, allergy_contact = sum(Known_Allergies_v2..Contact_Allergy == TRUE)/n()*100, allergy_drug = sum(Known_Allergies_v2..Drug_Allergy == TRUE)/n()*100, allergy_animal = sum(Known_Allergies_v2..Animal == TRUE)/n()*100))
+
+
+kable(data2_AD_CTRL %>% group_by(clinical_group)%>% filter(MAARS_identifier != "MAARS_1_017")%>%
+        summarise(n_distinct = n_distinct(MAARS_identifier), Prop_UB = sum(anatomical_location_label == 'UB')/n()*100, Prop_PT = sum(anatomical_location_label == 'PT')/n()*100, Prop_LB = sum(anatomical_location_label == 'LB')/n()*100, Prop_T = sum(anatomical_location_label == "T")/n()*100, Prop_B = sum(anatomical_location_label == "B")/n()*100))
+
+
+kable(data2_AD_CTRL %>% group_by(clinical_group)%>% filter(MAARS_identifier != "MAARS_1_017")%>%
+        summarise(n_distinct = n_distinct(MAARS_identifier), percentage_HHU = sum(Institution == "HHU")/n()*100, percentage_KINGS = sum(Institution == "KINGS")/n()*100, percentage_UH = sum(Institution == "UH")/n()*100))
+
+
+```
+
+
+```{r, age and clinical group, eval=FALSE}
+#Two sampe t test
+t.test(CUSTOM_Age ~ clinical_group, data = Infos_dataset_AD_CTRL, var.equal = TRUE)
+# Chi-square test
+
+chisq.test(data2_AD_CTRL$clinical_group, data2_AD_CTRL$lesional, correct = FALSE)
+
+chisq.test(data2_AD_CTRL$clinical_group, data2_AD_CTRL$Gender, correct = FALSE)
+
+chisq.test(data2_AD_CTRL$clinical_group, data2_AD_CTRL$Institution, correct = FALSE)
+
+chisq.test(data2_AD_CTRL$clinical_group, data2_AD_CTRL$anatomical_location_label, correct = FALSE)
+
+chisq.test(data2_AD_CTRL$clinical_group, data2_AD_CTRL$Institution, correct = FALSE)
+
+chisq.test(data2_AD_CTRL$clinical_group, data2_AD_CTRL$CUSTOM_Fam._hist._Atopic_dermatitis, correct = FALSE)
+
+chisq.test(data2_AD_CTRL$clinical_group, data2_AD_CTRL$CUSTOM_Fam._hist._Atopic_dermatitis)
+
+chisq.test(data2_AD_CTRL$clinical_group, data2_AD_CTRL$Known_Allergies_v2..Pseudo_Drug_Allergy)
+
+chisq.test(data2_AD_CTRL$clinical_group, data2_AD_CTRL$Known_Allergies_v2..House_dust_mite)
+
+chisq.test(data2_AD_CTRL$clinical_group, data2_AD_CTRL$Known_Allergies_v2..Food)
+
+chisq.test(data2_AD_CTRL$clinical_group, data2_AD_CTRL$Known_Allergies_v2..Pollen)
+
+chisq.test(data2_AD_CTRL$clinical_group, data2_AD_CTRL$Known_Allergies_v2..Contact_Allergy)
+
+chisq.test(data2_AD_CTRL$clinical_group, data2_AD_CTRL$Known_Allergies_v2..Drug_Allergy)
+
+chisq.test(data2_AD_CTRL$clinical_group, data2_AD_CTRL$Known_Allergies_v2..Animal)
+
+```
+
+
+```{r, Age, eval=FALSE}
+kable(Infos_dataset_AD_CTRL %>% group_by(Participant_group)%>% summarise( mean_age = mean(CUSTOM_Age), sd_age = sd(CUSTOM_Age)))
+
+#taking out control samples from the group
+
+
+kable(Infos_dataset_AD_CTRL %>% group_by(Gender)%>% summarise(Control = mean(Participant_group == "CTRL")/n()*100, AD_lesional = mean(Participant_group == "AD_lesional")/n()*100, AD_non_lesional = mean(Participant_group == "AD_nonlesional")/n()*100))
+```
+
+
+```{r, Ethnicity, eval=FALSE}
+kable(data1 %>% summarise(percentage_white = sum(patient.Diagnostic...Phenotypic.Data.Ethnicity.Family.History.Ethnicity..Ethnicity. == "White")/n()*100, percentage_Asian_others = sum(patient.Diagnostic...Phenotypic.Data.Ethnicity.Family.History.Ethnicity..Ethnicity. == "Asian - Other")/n()*100,percentage_Black_african = sum(patient.Diagnostic...Phenotypic.Data.Ethnicity.Family.History.Ethnicity..Ethnicity. == "Black - African")/n()*100, percentage_Black_carribean = sum(patient.Diagnostic...Phenotypic.Data.Ethnicity.Family.History.Ethnicity..Ethnicity. == "Black - Caribbean")/n()*100, percentage_Black_others = sum(patient.Diagnostic...Phenotypic.Data.Ethnicity.Family.History.Ethnicity..Ethnicity. == "Black - Other")/n()*100))
+
+table(data1$patient.Diagnostic...Phenotypic.Data.Ethnicity.Family.History.Ethnicity..Ethnicity.)
+
+chisq.test(data2_AD_CTRL$clinical_group, data2_AD_CTRL$Known_Allergies_v2..Pseudo_Drug_Allergy)
+chisq.test(data2_AD_CTRL$clinical_group, data2_AD_CTRL$Known_Allergies_v2..House_dust_mite)
+chisq.test(data2_AD_CTRL$clinical_group, data2_AD_CTRL$Known_Allergies_v2..Food)
+chisq.test(data2_AD_CTRL$clinical_group, data2_AD_CTRL$Known_Allergies_v2..Pollen)
+
+chisq.test(data2_AD_CTRL$clinical_group, data2_AD_CTRL$Known_Allergies_v2..Contact_Allergy)
+chisq.test(data2_AD_CTRL$clinical_group, data2_AD_CTRL$Known_Allergies_v2..Drug_Allergy)
+chisq.test(data2_AD_CTRL$clinical_group, data2_AD_CTRL$Known_Allergies_v2..Animal)
+```
+
+
+
+**5. DGE and Multiple testing procedure**
+
+```{r, eval=FALSE}
+
+library(limma)
+
+# modelling the matrix through limma package as the RNA micro array data is a continous variable
+
+design <- model.matrix(~ Infos_dataset_AD_CTRL$SCORAD_status)
+dim(design)
+y<- voom(Geneset_AD_CTRL, design, plot = T)
+
+
+fit<- lmFit(Geneset_AD_CTRL, design)
+
+Bayesfit<- eBayes(fit, robust = TRUE)
+
+voomlimma_signif <- decideTests(Bayesfit, adjust.method = "BH", p.value = 0.05, lfc = 1) # as we previously described that Benjamin hochberg method to chose accounting for a compromise and not to be conservative
+summary(voomlimma_signif)
+plotSA((Bayesfit))
+voomlimma_signif[]
+topTable(Bayesfit, adjust.method = "BH", number = Inf)
+summary(Bayesfit)
+
+
+
+#Multiple testing to see the significance levels for different method 
+
+pval_ord <- cbind.data.frame("raw_pval" = sort(fit$p.value[,2]), "order" =1:nrow(Geneset_AD_CTRL))
+
+myalpha <- 0.05
+
+table(pval_ord$raw_pval < myalpha)
+
+table(p.adjust(pval_ord$raw_pval, method = "BH") < myalpha)
+
+table(p.adjust(pval_ord$raw_pval, method = "holm") < myalpha)
+
+table(p.adjust(pval_ord$raw_pval, method = "bonferroni") < myalpha)
+
+
+m <- nrow(pval_ord)
+pval_ord$bh <- myalpha/m * 1:m
+pval_ord$holm <- myalpha/(m:1)
+pval_ord$nocor <- rep(myalpha, m)
+pval_ord$bonfer <- rep(myalpha/m, m)
+
+# Plotting the different method p-values for examining the siginficance point
+install.packages("ggplot2")
+
+library(ggplot2)
+ggplot(pval_ord, aes(x = order)) + geom_point(aes(y = raw_pval), shape = 1) + 
+    scale_y_log10(minor_breaks = rep(1:9, 13) * 10^-rep(0:12, each = 9)) + geom_line(aes(y = bh, 
+    col = "Benjamini-Hochberg")) + geom_line(aes(y = holm, col = "Holm")) + 
+    geom_line(aes(y = bonfer, col = "Bonferroni")) + geom_line(aes(y = nocor, 
+    col = "No correction")) + theme_classic() + theme(panel.grid.minor.x = element_blank(), 
+    panel.grid.major.x = element_blank()) + scale_colour_viridis_d("Correction limit") + 
+    xlab("P-value rank (ascending order)") + ylab("Moderated empirical Bayes t-test p-value (log10 scale)")
+
+
+
+```
+
+*Diagnostic plot*
+
+_MA plot_
+
+```{r, echo=TRUE, eval=FALSE}
+BiocManager::install("DESeq2")
+library(DESeq2)
+
+MA_plot<- limma::plotMA(object = Geneset_AD_CTRL, ylim = c(-3, 3), hl.col = c("blue", "red"), main = " MA plot of Expressed genes among AD and control ")
+abline(h = 0)
+
+
+plotMA(Geneset_AD_CTRL, array=250, status=Infos_dataset_AD_CTRL$clinical_group, hl.col = c("blue", "red"), main = " MA plot of Expressed genes among AD and control ")
+abline(h =0)
+
+plotWithHighlights(Geneset_AD_CTRL, Infos_dataset_AD_CTRL$clinical_group, status = NULL, values = NULL,
+                   hl.pch = 16, hl.col = NULL, hl.cex = 1, legend = "topright",
+                   bg.pch = 16, bg.col = "black", bg.cex = 0.3,
+                   pch = NULL, col = NULL, cex = NULL)
+
+
+```
+
+**Hierarchial clustering: Dendrogram and heatmap**
+
+```{r, eval = FALSE}
+# Constructing the Hierarchial clustering dendrogram
+
+  deucl_norm <- dist(t(Geneset_AD_CTRL))
+plot(deucl_norm)
+
+
+plot(flashClust::hclust(deucl_norm, method = "ward"), labels = Infos_dataset_AD_CTRL$Participant_group, col = Infos_dataset_AD_CTRL$clinical_group)
+
+
+# Heat map contruction by base r package
+t_geneset_AD_CTRL<- t(Geneset_AD_CTRL)
+heatmap(t_geneset_AD_CTRL, scale = "none")
+
+#  High values are in red and low values are in yellow.
+
+```
+
+
+**PCA** 
+
+```{r, eval=FALSE}
+# PCA procedure
+
+library(FactoMineR)
+
+AD_CTRL_PCA <- PCA(t_geneset_AD_CTRL)
+
+#Clinical group
+
+AD_CTRL_Genes_Clinical_group<- data.frame(t_geneset_AD_CTRL, location = Infos_dataset_AD_CTRL$clinical_group)
+
+
+PCA_AD_CTRL_Clinical_group <- PCA(AD_CTRL_Genes_Clinical_group, quali.sup = which(names(AD_CTRL_Genes_Clinical_group) == 
+    "location"))
+
+plot(PCA_AD_CTRL_Clinical_group, choix = "ind", label = "none", habillage = which(names(AD_CTRL_Genes_Clinical_group) == 
+    "location"), addEllipses=TRUE)
+
+#Lesional vs Non lesional
+
+ AD_CTRL_Genes_Lesional<- data.frame(t_geneset_AD_CTRL, location = Infos_dataset_AD_CTRL$lesional)
+
+rawPCAcolored1 <- PCA(AD_CTRL_Genes_Lesional, quali.sup = which(names(AD_CTRL_Genes_Lesional) == 
+    "location"))
+
+plot(rawPCAcolored1, choix = "ind", label = "none", habillage = which(names(AD_CTRL_Genes_Lesional) == 
+    "location"))
+
+
+  # Scorad score
+
+rawCommonGenes2 <- data.frame(t_geneset_AD_CTRL, location = Infos_dataset_AD_CTRL$SCORAD_status)
+
+rawPCAcolored2 <- PCA(rawCommonGenes2, quali.sup = which(names(rawCommonGenes2) == 
+    "location"))
+
+plot(rawPCAcolored2, choix = "ind", label = "none", habillage = which(names(rawCommonGenes2) == 
+    "location"))
+```
+
+
+```{r, eval=FALSE}
+#Scree plot for examining the proportion of variance in a dataset that is explained by each of the components in PCA
+
+eigenvalues<- PCA_AD_CTRL_Clinical_group$eig
+
+barplot(eigenvalues[, 2], names.arg=1:nrow(eigenvalues), 
+       main = "Scree Plot",
+       xlab = "Principal Components",
+       ylab = "Percentage of variances",
+       col ="steelblue")
+# Add connected line segments to the plot
+lines(x = 1:nrow(eigenvalues), eigenvalues[, 2], 
+      type="b", pch=19, col = "red")
+
+
+# Visualizing the variable plots in PCA
+
+fviz_pca_var(PCA_AD_CTRL_participan_group, col.var = Infos_dataset_AD_CTRL$Participant_group, 
+             palette = c("#0073C2FF", "#EFC000FF", "#868686FF"),
+             legend.title = "Cluster")
+
+
+#Adding ellipses to PCA plot
+
+plotellipses(rawPCAcolored1, keepvar = "all" )
+plotellipses(rawPCAcolored1, keepvar = "all", axes = c(1, 2), means=TRUE, level = 0.95, 
+    magnify = 2, cex = 1, pch = 20, pch.means=15, type = c("g","p"), 
+    keepnames = TRUE, namescat = NULL, xlim=NULL, ylim=NULL, lwd=1, 
+    label="all", autoLab=c("auto","yes","no"))
+
+
+library("devtools")
+install_github("kassambara/factoextra")
+library(factoextra)
+
+fviz_pca_ind(rawPCAcolored1)
+
+fviz_pca_ind(rawPCAcolored1, axes = c(1, 2), geom = c("point", "text"),
+       label = "all", invisible = "none", labelsize = 4,
+       pointsize = 2, habillage = "none",
+       addEllipses = TRUE, ellipse.level = 0.95, 
+       col.ind = "black", col.ind.sup = "blue", alpha.ind = 1,
+       select.ind = list(name = NULL, cos2 = NULL, contrib = NULL),
+       jitter = list(what = "label", width = NULL, height = NULL))
+
+
+# Control automatically the color of individuals
+# using the cos2 or the contributions
+# cos2 = the quality of the individuals on the factor map
+fviz_pca_ind(rawPCAcolored1, col.ind="cos2")
+
+
+# PCA by color radient in cos2 value  Change the theme and use only points
+fviz_pca_ind(rawPCAcolored1, col.ind="cos2", geom = "point") +
+      scale_color_gradient2(low="white", mid="blue",
+      high="red", midpoint=0.6)+ theme_minimal()
+
+# Variable plot for PCA
+fviz_pca_var(PCA_AD_CTRL_Clinical_group, col.var = "contrib",
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"))
+fviz_pca_var(PCA_AD_CTRL_Clinical_group, col.var = "contrib", lim.cos2.var = 0.85)
+
+fviz_pca_var(PCA_AD_CTRL_participan_group, col.var = "cos2", lim.cos2.var = 0.85)
+
+fviz_pca_var(PCA_AD_CTRL_Clinical_group, select.var = list(cos2 = 0.85))
+
+which.max(PCA_AD_CTRL_Clinical_group$var$cos2)
+which.min(PCA_AD_CTRL_Clinical_group$var$cos2)
+
+#eigen values
+library(factoextra)
+eig.val <- get_eigenvalue(rawPCAcolored1)
+eig.val
+
+fviz_eig(rawPCAcolored1, addlabels = TRUE, ylim = c(0, 50))
+
+#Scree plot
+
+fviz_eig(rawPCAcolored1, addlabels = TRUE, ylim = c(0, 10), ncp = 30, barcolor = "blue", barfill = "blue", ggtheme = theme_classic())
+abline(h = 2)
+
+plot(rawPCAcolored1$eig[, "eigenvalue"], type = "b", ylab = "Eigenvalue")
+abline(h = ncol(AD_CTRL_Genes_Clinical_group)/nrow(rawPCAcolored1$eig), col = "red", lty = "dotted", lwd = 2)
+
+fviz_eig(rawPCAcolored1, addlabels = TRUE, ylim = c(0, 10), ncp = 20, barcolor = "blue", barfill = "blue", ggtheme = theme_classic())
+
+
+
+# To visualize the contribution
+
+fviz_contrib(rawPCAcolored1, choice = "ind", axes = 1:2)
+
+# Color by the contributions
+fviz_pca_ind(rawPCAcolored1, col.ind="contrib") +
+      scale_color_gradient2(low="white", mid="blue",
+      high="red", midpoint=4)
+
+# Color individuals by groups
+fviz_pca_ind(rawPCAcolored1, label="none", habillage=Infos_dataset_AD_CTRL$clinical_group)
+fviz_pca_ind(rawPCAcolored1, label="none", habillage=Infos_dataset_AD_CTRL$SCORAD_status)
+fviz_pca_ind(PCA_AD_CTRL_participan_group, label = "none", habillage = Infos_dataset_AD_CTRL$Participant_group)
+
+# Adding ellipses to the variable SCORAD status group
+p <- fviz_pca_ind(rawPCAcolored1, label="none", habillage=Infos_dataset_AD_CTRL$SCORAD_status,
+             addEllipses=TRUE, ellipse.level=0.95)
+print(p)
+
+p + scale_color_brewer(palette="Paired") +
+     theme_minimal()
+
+p + scale_color_brewer(palette="Set1") +
+     theme_minimal()
+
+# Adding ellipses to the variable Clinical group
+q <- fviz_pca_ind(rawPCAcolored1, label="none", habillage=Infos_dataset_AD_CTRL$clinical_group,
+             addEllipses=TRUE, ellipse.level=0.95)
+print(q)
+
+q + scale_color_brewer(palette="Paired") +
+     theme_minimal()
+
+q + scale_color_brewer(palette="Set1") +
+     theme_minimal()
+```
+
