@@ -1,6 +1,6 @@
 ---
 title: "OMICS Project"
-author: "Arulmani, Gabriel, Penn"
+author: "Arulmani"
 date: "10/13/2019"
 output: 
   html_document:
